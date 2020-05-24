@@ -15,7 +15,7 @@ set :passenger_restart_with_touch, true
 append :linked_files, "config/database.yml", "config/master.key"
 
 # Default value for linked_dirs is []
-append :linked_dirs, "log", "tmp/pids", "tmp/cache", "tmp/sockets", "public/system"
+append :linked_dirs, "log", "tmp/pids", "tmp/cache", "tmp/sockets", "public/system", ".bundle"
 
 # Default value for :format is :airbrussh.
 # set :format, :airbrussh
@@ -44,3 +44,65 @@ append :linked_dirs, "log", "tmp/pids", "tmp/cache", "tmp/sockets", "public/syst
 
 # Uncomment the following to require manually verifying the host key before first deploy.
 # set :ssh_options, verify_host_key: :secure
+#
+namespace :bundle do
+  before 'deploy:finished', 'bundle:install'
+
+  task :install do
+    on roles(:app) do
+      within current_path do
+        execute :bundle, :install
+      end
+    end
+  end
+end
+
+namespace :sidekiq do
+  task :restart do
+    invoke 'sidekiq:stop'
+    invoke 'sidekiq:start'
+  end
+
+  before 'deploy:finished', 'sidekiq:restart'
+
+  task :stop do
+    on roles(:app) do
+      within current_path do
+        execute :pkill, '-f', :sidekiq
+      end
+    end
+  end
+
+  task :start do
+    on roles(:app) do
+      within current_path do
+        execute :bundle, "exec sidekiq  -d -e #{fetch(:stage)} -l log/sidekiq.log"
+      end
+    end
+  end
+end
+
+namespace :smtp do
+  task :restart do
+    invoke 'smtp:stop'
+    invoke 'smtp:start'
+  end
+
+  before 'deploy:finished', 'smtp:restart'
+
+  task :stop do
+    on roles(:app) do
+      within current_path do
+        execute :pkill, '-f', :smtp_service
+      end
+    end
+  end
+
+  task :start do
+    on roles(:app) do
+      within current_path do
+        execute "RAILS_ENV=#{fetch(:stage)}", :nohup, "$HOME/.rbenv/bin/rbenv exec bundle exec rake smtp_service --trace &> log/smtp.log &"
+      end
+    end
+  end
+end
